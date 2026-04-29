@@ -29,16 +29,13 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y wget zip unzip
 
-          # bundletool download
           wget -q https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar -O bundletool.jar
 
-          # Android command line tools (aapt2 এর জন্য)
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdtools.zip
           unzip -q cmdtools.zip -d cmdtools_tmp
           mkdir -p $HOME/android-sdk/cmdline-tools/latest
           mv cmdtools_tmp/cmdline-tools/* $HOME/android-sdk/cmdline-tools/latest/
 
-          # build-tools install (aapt2 এখানে থাকে)
           yes | $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager \
             --sdk_root=$HOME/android-sdk \
             "build-tools;34.0.0" > /dev/null
@@ -66,27 +63,18 @@ jobs:
           mkdir -p module/assets
           mkdir -p module/root
 
-          # AndroidManifest.xml → manifest/ ফোল্ডারে
           cp apk_extracted/AndroidManifest.xml module/manifest/
 
-          # resources.pb → module root এ
           [ -f apk_extracted/resources.pb ] && cp apk_extracted/resources.pb module/
 
-          # DEX files → dex/ ফোল্ডারে
           find apk_extracted -maxdepth 1 -name "*.dex" | while read f; do
             cp "$f" module/dex/
           done
 
-          # res/ → module এ (যদি থাকে)
-          [ -d apk_extracted/res ] && cp -r apk_extracted/res module/
-
-          # lib/ → module এ (native libraries, যদি থাকে)
-          [ -d apk_extracted/lib ] && cp -r apk_extracted/lib module/
-
-          # assets/ → module এ (যদি থাকে)
+          [ -d apk_extracted/res ]    && cp -r apk_extracted/res    module/
+          [ -d apk_extracted/lib ]    && cp -r apk_extracted/lib    module/
           [ -d apk_extracted/assets ] && cp -r apk_extracted/assets module/
 
-          # অন্য root files (kotlin, META-INF/services) → root/ এ
           [ -d apk_extracted/kotlin ] && cp -r apk_extracted/kotlin module/root/
           [ -d apk_extracted/META-INF/services ] && \
             mkdir -p module/root/META-INF && \
@@ -102,7 +90,7 @@ jobs:
 
           echo "=== ধাপ ৬: AAB সাইন করা ==="
           jarsigner \
-            -keystore release-key.jks \
+            -keystore $GITHUB_WORKSPACE/keystore.p12 \
             -storepass ${{ github.event.inputs.keystore_password }} \
             -keypass ${{ github.event.inputs.key_password }} \
             -signedjar signed-release.aab \
