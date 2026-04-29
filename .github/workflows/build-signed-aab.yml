@@ -1,0 +1,98 @@
+# --------------------------------------------------
+# Project Name: Signed AAB Builder
+# Workflow File: .github/workflows/build-signed-aab.yml
+# --------------------------------------------------
+
+name: Build Signed AAB from APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      apk_url:
+        description: 'Direct Download URL of the APK file'
+        required: true
+      keystore_file:
+        description: 'Upload your .jks or .p12 Keystore file'
+        required: true
+        type: string # This will be handled by the file-input-action
+      keystore_password:
+        description: 'Your Keystore Password'
+        required: true
+      key_alias:
+        description: 'Your Key Alias Name'
+        required: true
+      key_password:
+        description: 'Your Key Alias Password'
+        required: true
+
+jobs:
+  build-aab:
+    name: Build and Sign AAB
+    runs-on: ubuntu-latest
+    
+    steps:
+      # ধাপ ১: ইউজারের আপলোড করা Keystore ফাইলটি রিসিভ করা
+      - name: Receive Keystore File from User
+        id: keystore
+        uses: nsith-ni/file-input-action@v1.0.1
+        with:
+          input-name: 'keystore_file'
+          file-name: 'release-key.jks' # সার্ভারে এই নামে ফাইলটি সেভ হবে
+          
+      # ধাপ ২: প্রয়োজনীয় টুলস (apktool ও bundletool) ইনস্টল করা
+      - name: Install Required Tools
+        run: |
+          echo "Installing required tools..."
+          sudo apt-get update && sudo apt-get install -y wget
+          
+          # apktool ইনস্টল করা
+          echo "Installing apktool..."
+          wget https://bit.ly/apktool-install-linux -O apktool-install-linux && chmod +x apktool-install-linux
+          sudo mv apktool-install-linux /usr/local/bin/
+          wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O apktool && chmod +x apktool
+          sudo mv apktool /usr/local/bin/
+          
+          # bundletool ইনস্টল করা
+          echo "Installing bundletool..."
+          wget https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar -O bundletool.jar
+          echo "Tools installed successfully."
+
+      # ধাপ ৩: APK ফাইল ডাউনলোড এবং ডিকম্পাইল করা
+      - name: Download and Decompile APK
+        run: |
+          echo "Downloading APK from URL..."
+          wget -O original.apk "${{ github.event.inputs.apk_url }}"
+          
+          echo "Decompiling APK using apktool..."
+          apktool d original.apk -o decompiled_folder
+
+      # ধাপ ৪: AAB তৈরি করা এবং সাইন করা
+      - name: Build and Sign the AAB file
+        run: |
+          echo "Building unsigned AAB from decompiled files..."
+          # প্রথমে একটি unsigned AAB তৈরি করা
+          # নোট: ডিকম্পাইল করা APK-এর রিসোর্সগুলো `dist/base.zip` নামে পাওয়া যায় না, তাই আমরা সরাসরি ফোল্ডার ব্যবহার করব।
+          # `apktool` দিয়ে তৈরি করা ফোল্ডারকে প্রথমে একটি ZIP ফাইলে পরিণত করতে হবে।
+          (cd decompiled_folder && zip -r ../base.zip .)
+          
+          # তারপর bundletool দিয়ে AAB তৈরি করা
+          java -jar bundletool.jar build-bundle --modules=base.zip --output=unsigned.aab
+
+          echo "Signing the AAB with the provided Keystore..."
+          # আপলোড করা Keystore দিয়ে AAB ফাইলটি সাইন করা
+          java -jar bundletool.jar sign-bundle \
+            --input=unsigned.aab \
+            --output=signed-release.aab \
+            --ks=${{ steps.keystore.outputs.file-path }} \
+            --ks-pass=pass:${{ github.event.inputs.keystore_password }} \
+            --ks-key-alias=${{ github.event.inputs.key_alias }} \
+            --key-pass=pass:${{ github.event.inputs.key_password }}
+          echo "AAB signing complete."
+
+      # ধাপ ৫: তৈরি হওয়া ফাইনাল AAB ফাইলটি আপলোড করা
+      - name: Upload Signed AAB Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-aab-file
+          path: signed-release.aab
+          retention-days: 5 # সিকিউরিটির জন্য ফাইলটি ৫ দিন পর ডিলিট হয়ে যাবে
