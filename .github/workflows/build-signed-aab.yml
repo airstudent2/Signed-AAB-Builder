@@ -1,9 +1,3 @@
-# -----------------------------------------------------------------
-# Project Name: Signed AAB Builder
-# Workflow File: .github/workflows/build-signed-aab.yml
-# This workflow is designed to be triggered by the Telegram Bot.
-# -----------------------------------------------------------------
-
 name: Build Signed AAB from APK (API Trigger)
 
 on:
@@ -31,23 +25,25 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      # ধাপ ১: প্রয়োজনীয় টুলস (apktool ও bundletool) ইনস্টল করা
+      # --- ধাপ ১: প্রয়োজনীয় টুলস ইনস্টল করা (সংশোধিত) ---
       - name: Install Required Tools
         run: |
           echo "Installing required tools..."
           sudo apt-get update && sudo apt-get install -y wget zip
           
-          # apktool ইনস্টল করা
-          wget https://bit.ly/apktool-install-linux -O apktool-install-linux && chmod +x apktool-install-linux
-          sudo mv apktool-install-linux /usr/local/bin/
-          wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O apktool && chmod +x apktool
-          sudo mv apktool /usr/local/bin/
+          # apktool ইনস্টল করার সঠিক এবং নির্ভরযোগ্য পদ্ধতি
+          echo "Installing apktool..."
+          wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O apktool
+          wget https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar -O apktool.jar
+          sudo mv apktool /usr/local/bin
+          sudo mv apktool.jar /usr/local/bin
+          sudo chmod +x /usr/local/bin/apktool /usr/local/bin/apktool.jar
           
           # bundletool ইনস্টল করা
+          echo "Installing bundletool..."
           wget https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar -O bundletool.jar
           echo "Tools installed successfully."
 
-      # ধাপ ২: APK ফাইল ডাউনলোড এবং Base64 থেকে Keystore ফাইল তৈরি করা
       - name: Download APK and Decode Keystore
         run: |
           echo "Downloading APK from URL..."
@@ -56,13 +52,11 @@ jobs:
           echo "Decoding Keystore from Base64 string..."
           echo "${{ github.event.inputs.keystore_base64 }}" | base64 --decode > my-release-key.jks
 
-      # ধাপ ৩: APK ফাইল ডিকম্পাইল করা
       - name: Decompile APK
         run: |
           echo "Decompiling APK using apktool..."
           apktool d original.apk -o decompiled_folder
 
-      # ধাপ ৪: AAB তৈরি করা এবং সাইন করা
       - name: Build and Sign the AAB file
         run: |
           echo "Creating a zip from decompiled folder..."
@@ -81,7 +75,6 @@ jobs:
             --key-pass=pass:${{ github.event.inputs.key_password }}
           echo "AAB signing complete."
 
-      # ধাপ ৫: তৈরি হওয়া ফাইনাল AAB ফাইলটি আপলোড করা
       - name: Upload Signed AAB Artifact
         uses: actions/upload-artifact@v4
         with:
