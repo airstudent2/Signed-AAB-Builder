@@ -1,0 +1,44 @@
+name: Build Signed AAB (Manual Web Trigger)
+
+on:
+  repository_dispatch:
+    types: [build-aab]
+
+jobs:
+  build-aab:
+    name: Build and Sign AAB
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Required Tools
+        run: |
+          # (Tools installation code will be here)
+          sudo apt-get update && sudo apt-get install -y wget zip
+          wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O apktool
+          wget https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar -O apktool.jar
+          sudo mv apktool /usr/local/bin; sudo mv apktool.jar /usr/local/bin; sudo chmod +x /usr/local/bin/apktool /usr/local/bin/apktool.jar
+          wget https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar -O bundletool.jar
+
+      - name: Decode Keystore and Download APK
+        run: |
+          echo "${{ github.event.client_payload.keystore_base64 }}" | base64 --decode > my-release-key.jks
+          wget -O original.apk "${{ github.event.client_payload.apk_url }}"
+
+      - name: Build and Sign the AAB file
+        run: |
+          # (Build and sign logic will be here)
+          apktool d -f original.apk -o decompiled_folder
+          apktool b decompiled_folder -o rebuilt.apk
+          java -jar bundletool.jar build-bundle --modules=rebuilt.apk --output=unsigned.aab
+          java -jar bundletool.jar sign-bundle \
+            --input=unsigned.aab \
+            --output=signed-release.aab \
+            --ks=my-release-key.jks \
+            --ks-pass=pass:${{ github.event.client_payload.keystore_password }} \
+            --ks-key-alias=${{ github.event.client_payload.key_alias }} \
+            --key-pass=pass:${{ github.event.client_payload.key_password }}
+
+      - name: Upload Signed AAB Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-aab-file
+          path: signed-release.aab
