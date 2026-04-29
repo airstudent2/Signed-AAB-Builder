@@ -25,13 +25,11 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      # --- ধাপ ১: প্রয়োজনীয় টুলস ইনস্টল করা (সংশোধিত) ---
       - name: Install Required Tools
         run: |
           echo "Installing required tools..."
           sudo apt-get update && sudo apt-get install -y wget zip
           
-          # apktool ইনস্টল করার সঠিক এবং নির্ভরযোগ্য পদ্ধতি
           echo "Installing apktool..."
           wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O apktool
           wget https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar -O apktool.jar
@@ -39,7 +37,6 @@ jobs:
           sudo mv apktool.jar /usr/local/bin
           sudo chmod +x /usr/local/bin/apktool /usr/local/bin/apktool.jar
           
-          # bundletool ইনস্টল করা
           echo "Installing bundletool..."
           wget https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar -O bundletool.jar
           echo "Tools installed successfully."
@@ -57,9 +54,17 @@ jobs:
           echo "Decompiling APK using apktool..."
           apktool d original.apk -o decompiled_folder
 
+      # --- ধাপ ৪: AAB তৈরি করা এবং সাইন করা (সংশোধিত) ---
       - name: Build and Sign the AAB file
         run: |
-          echo "Creating a zip from decompiled folder..."
+          echo "Adjusting file structure for bundletool..."
+          # --- মূল সমাধান এখানে ---
+          # 1. একটি manifest ফোল্ডার তৈরি করা হচ্ছে
+          mkdir -p decompiled_folder/manifest
+          # 2. AndroidManifest.xml ফাইলটিকে manifest ফোল্ডারের ভেতরে সরানো হচ্ছে
+          mv decompiled_folder/AndroidManifest.xml decompiled_folder/manifest/
+          
+          echo "Creating a zip from the adjusted folder..."
           (cd decompiled_folder && zip -qr ../base.zip .)
           
           echo "Building unsigned AAB from the zip..."
