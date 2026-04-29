@@ -25,22 +25,15 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
+      # ধাপ ১: শুধু bundletool ইনস্টল করা (apktool আর দরকার নেই)
       - name: Install Required Tools
         run: |
-          echo "Installing required tools..."
-          sudo apt-get update && sudo apt-get install -y wget zip
-          
-          echo "Installing apktool..."
-          wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O apktool
-          wget https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar -O apktool.jar
-          sudo mv apktool /usr/local/bin
-          sudo mv apktool.jar /usr/local/bin
-          sudo chmod +x /usr/local/bin/apktool /usr/local/bin/apktool.jar
-          
           echo "Installing bundletool..."
+          sudo apt-get update && sudo apt-get install -y wget
           wget https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar -O bundletool.jar
-          echo "Tools installed successfully."
+          echo "Tool installed successfully."
 
+      # ধাপ ২: APK ফাইল ডাউনলোড এবং Keystore তৈরি করা
       - name: Download APK and Decode Keystore
         run: |
           echo "Downloading APK from URL..."
@@ -49,37 +42,23 @@ jobs:
           echo "Decoding Keystore from Base64 string..."
           echo "${{ github.event.inputs.keystore_base64 }}" | base64 --decode > my-release-key.jks
 
-      - name: Decompile APK
-        run: |
-          echo "Decompiling APK using apktool..."
-          apktool d original.apk -o decompiled_folder
-
-      # --- ধাপ ৪: AAB তৈরি করা এবং সাইন করা (সংশোধিত) ---
+      # --- ধাপ ৩: AAB তৈরি করা এবং সাইন করা (সম্পূর্ণ নতুন এবং সহজ পদ্ধতি) ---
       - name: Build and Sign the AAB file
         run: |
-          echo "Adjusting file structure for bundletool..."
-          # --- মূল সমাধান এখানে ---
-          # 1. একটি manifest ফোল্ডার তৈরি করা হচ্ছে
-          mkdir -p decompiled_folder/manifest
-          # 2. AndroidManifest.xml ফাইলটিকে manifest ফোল্ডারের ভেতরে সরানো হচ্ছে
-          mv decompiled_folder/AndroidManifest.xml decompiled_folder/manifest/
+          echo "Building AAB directly from APK using bundletool..."
           
-          echo "Creating a zip from the adjusted folder..."
-          (cd decompiled_folder && zip -qr ../base.zip .)
-          
-          echo "Building unsigned AAB from the zip..."
-          java -jar bundletool.jar build-bundle --modules=base.zip --output=unsigned.aab
-          
-          echo "Signing the AAB with the provided Keystore..."
-          java -jar bundletool.jar sign-bundle \
-            --input=unsigned.aab \
+          # bundletool-এর build-bundle --from-apks কমান্ড ব্যবহার করে সরাসরি AAB তৈরি করা হচ্ছে
+          java -jar bundletool.jar build-bundle \
+            --from-apks=original.apk \
             --output=signed-release.aab \
             --ks=my-release-key.jks \
             --ks-pass=pass:${{ github.event.inputs.keystore_password }} \
             --ks-key-alias=${{ github.event.inputs.key_alias }} \
             --key-pass=pass:${{ github.event.inputs.key_password }}
-          echo "AAB signing complete."
+            
+          echo "Signed AAB created successfully!"
 
+      # ধাপ ৪: তৈরি হওয়া ফাইনাল AAB ফাইলটি আপলোড করা
       - name: Upload Signed AAB Artifact
         uses: actions/upload-artifact@v4
         with:
