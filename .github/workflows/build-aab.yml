@@ -46,8 +46,41 @@ jobs:
         run: |
           wget -O original.apk "${{ github.event.inputs.apk_url }}"
 
+      - name: Find Keystore File
+        run: |
+          # ✅ keystore.p12 আছে কিনা দেখো
+          if [ -f "$GITHUB_WORKSPACE/keystore.p12" ]; then
+            echo "✅ keystore.p12 পাওয়া গেছে!"
+            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/keystore.p12" >> $GITHUB_ENV
+
+          # ✅ release-key.jks আছে কিনা দেখো
+          elif [ -f "$GITHUB_WORKSPACE/release-key.jks" ]; then
+            echo "✅ release-key.jks পাওয়া গেছে!"
+            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/release-key.jks" >> $GITHUB_ENV
+
+          # ✅ যেকোনো .jks ফাইল আছে কিনা দেখো
+          elif find "$GITHUB_WORKSPACE" -maxdepth 1 -name "*.jks" | grep -q .; then
+            JKS_FILE=$(find "$GITHUB_WORKSPACE" -maxdepth 1 -name "*.jks" | head -1)
+            echo "✅ JKS ফাইল পাওয়া গেছে: $JKS_FILE"
+            echo "KEYSTORE_PATH=$JKS_FILE" >> $GITHUB_ENV
+
+          # ✅ যেকোনো .p12 ফাইল আছে কিনা দেখো
+          elif find "$GITHUB_WORKSPACE" -maxdepth 1 -name "*.p12" | grep -q .; then
+            P12_FILE=$(find "$GITHUB_WORKSPACE" -maxdepth 1 -name "*.p12" | head -1)
+            echo "✅ P12 ফাইল পাওয়া গেছে: $P12_FILE"
+            echo "KEYSTORE_PATH=$P12_FILE" >> $GITHUB_ENV
+
+          # ❌ কোনো keystore নেই
+          else
+            echo "❌ কোনো Keystore ফাইল পাওয়া যায়নি!"
+            echo "Repository তে .jks বা .p12 ফাইল আপলোড করুন।"
+            exit 1
+          fi
+
       - name: Build and Sign AAB
         run: |
+          echo "=== ব্যবহার হচ্ছে: $KEYSTORE_PATH ==="
+
           echo "=== ধাপ ১: APK resources proto format এ convert করা ==="
           $AAPT2 convert --output-format proto original.apk -o proto.apk
 
@@ -90,7 +123,7 @@ jobs:
 
           echo "=== ধাপ ৬: AAB সাইন করা ==="
           jarsigner \
-            -keystore $GITHUB_WORKSPACE/keystore.p12 \
+            -keystore $KEYSTORE_PATH \
             -storepass ${{ github.event.inputs.keystore_password }} \
             -keypass ${{ github.event.inputs.key_password }} \
             -signedjar signed-release.aab \
