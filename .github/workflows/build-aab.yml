@@ -27,7 +27,7 @@ jobs:
 
       - name: Install Tools
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y wget zip unzip
+          sudo apt-get update -qq && sudo apt-get install -y wget zip unzip curl
 
           wget -q https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar -O bundletool.jar
 
@@ -44,36 +44,56 @@ jobs:
 
       - name: Download APK
         run: |
-          wget -O original.apk "${{ github.event.inputs.apk_url }}"
+          echo "=== APK Download শুরু ==="
+          echo "URL: ${{ github.event.inputs.apk_url }}"
+
+          # ✅ curl দিয়ে download - redirect follow করে, user-agent সেট করে
+          curl -L \
+            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+            --max-time 300 \
+            --retry 3 \
+            --retry-delay 5 \
+            -o original.apk \
+            "${{ github.event.inputs.apk_url }}"
+
+          # ✅ Download হয়েছে কিনা verify করো
+          echo "=== Downloaded file info ==="
+          ls -lh original.apk
+          file original.apk
+
+          # ✅ Valid ZIP/APK কিনা চেক করো
+          if ! unzip -t original.apk > /dev/null 2>&1; then
+            echo "❌ Error: Downloaded file is not a valid APK/ZIP!"
+            echo "=== File এর প্রথম কয়েক bytes ==="
+            xxd original.apk | head -5
+            echo ""
+            echo "⚠️ সম্ভাব্য কারণ:"
+            echo "   1. Link টা direct download link না"
+            echo "   2. Google Drive হলে: https://drive.google.com/uc?export=download&id=FILE_ID ব্যবহার করুন"
+            echo "   3. Link expire হয়ে গেছে"
+            exit 1
+          fi
+
+          echo "✅ APK valid! Size: $(ls -lh original.apk | awk '{print $5}')"
 
       - name: Find Keystore File
         run: |
-          # ✅ keystore.p12 আছে কিনা দেখো
           if [ -f "$GITHUB_WORKSPACE/keystore.p12" ]; then
             echo "✅ keystore.p12 পাওয়া গেছে!"
             echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/keystore.p12" >> $GITHUB_ENV
-
-          # ✅ release-key.jks আছে কিনা দেখো
           elif [ -f "$GITHUB_WORKSPACE/release-key.jks" ]; then
             echo "✅ release-key.jks পাওয়া গেছে!"
             echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/release-key.jks" >> $GITHUB_ENV
-
-          # ✅ যেকোনো .jks ফাইল আছে কিনা দেখো
           elif find "$GITHUB_WORKSPACE" -maxdepth 1 -name "*.jks" | grep -q .; then
             JKS_FILE=$(find "$GITHUB_WORKSPACE" -maxdepth 1 -name "*.jks" | head -1)
             echo "✅ JKS ফাইল পাওয়া গেছে: $JKS_FILE"
             echo "KEYSTORE_PATH=$JKS_FILE" >> $GITHUB_ENV
-
-          # ✅ যেকোনো .p12 ফাইল আছে কিনা দেখো
           elif find "$GITHUB_WORKSPACE" -maxdepth 1 -name "*.p12" | grep -q .; then
             P12_FILE=$(find "$GITHUB_WORKSPACE" -maxdepth 1 -name "*.p12" | head -1)
             echo "✅ P12 ফাইল পাওয়া গেছে: $P12_FILE"
             echo "KEYSTORE_PATH=$P12_FILE" >> $GITHUB_ENV
-
-          # ❌ কোনো keystore নেই
           else
             echo "❌ কোনো Keystore ফাইল পাওয়া যায়নি!"
-            echo "Repository তে .jks বা .p12 ফাইল আপলোড করুন।"
             exit 1
           fi
 
