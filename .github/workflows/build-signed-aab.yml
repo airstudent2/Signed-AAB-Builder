@@ -1,4 +1,4 @@
-name: Build Signed AAB from APK (Manual Trigger)
+name: Build Signed AAB from APK (Manual Upload)
 
 on:
   workflow_dispatch:
@@ -6,9 +6,10 @@ on:
       apk_url:
         description: 'Direct Download URL of the APK file'
         required: true
-      keystore_base64:
-        description: 'Your Keystore file ENCODED in Base64 format'
+      keystore_file:
+        description: 'Upload your .jks or .p12 Keystore file'
         required: true
+        type: string
       keystore_password:
         description: 'Your Keystore Password'
         required: true
@@ -25,6 +26,13 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
+      - name: Receive Keystore File from User
+        id: keystore
+        uses: nsith-ni/file-input-action@v1.0.1
+        with:
+          input-name: 'keystore_file'
+          file-name: 'my-release-key.jks'
+
       - name: Install Required Tools
         run: |
           echo "Installing required tools..."
@@ -41,10 +49,9 @@ jobs:
           wget https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar -O bundletool.jar
           echo "Tools installed successfully."
 
-      - name: Download APK and Decode Keystore
+      - name: Download APK
         run: |
           wget -O original.apk "${{ github.event.inputs.apk_url }}"
-          echo "${{ github.event.inputs.keystore_base64 }}" | base64 --decode > my-release-key.jks
 
       # --- ফাইনাল এবং ১০০% পরীক্ষিত সমাধান ---
       - name: Build and Sign the AAB file
@@ -55,11 +62,16 @@ jobs:
           echo "Step 2: Rebuilding a clean APK from decompiled files..."
           apktool b decompiled_folder -o rebuilt.apk
           
-          echo "Step 3: Building a signed AAB from the rebuilt APK..."
+          echo "Step 3: Building an unsigned AAB from the rebuilt APK..."
           java -jar bundletool.jar build-bundle \
             --modules=rebuilt.apk \
+            --output=unsigned.aab
+            
+          echo "Step 4: Signing the AAB with the provided Keystore..."
+          java -jar bundletool.jar sign-bundle \
+            --input=unsigned.aab \
             --output=signed-release.aab \
-            --ks=my-release-key.jks \
+            --ks=${{ steps.keystore.outputs.file-path }} \
             --ks-pass=pass:${{ github.event.inputs.keystore_password }} \
             --ks-key-alias=${{ github.event.inputs.key_alias }} \
             --key-pass=pass:${{ github.event.inputs.key_password }}
