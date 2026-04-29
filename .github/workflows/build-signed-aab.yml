@@ -25,7 +25,6 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      # ধাপ ১: শুধু bundletool ইনস্টল করা (apktool আর দরকার নেই)
       - name: Install Required Tools
         run: |
           echo "Installing bundletool..."
@@ -33,7 +32,6 @@ jobs:
           wget https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar -O bundletool.jar
           echo "Tool installed successfully."
 
-      # ধাপ ২: APK ফাইল ডাউনলোড এবং Keystore তৈরি করা
       - name: Download APK and Decode Keystore
         run: |
           echo "Downloading APK from URL..."
@@ -42,15 +40,17 @@ jobs:
           echo "Decoding Keystore from Base64 string..."
           echo "${{ github.event.inputs.keystore_base64 }}" | base64 --decode > my-release-key.jks
 
-      # --- ধাপ ৩: AAB তৈরি করা এবং সাইন করা (সম্পূর্ণ নতুন এবং সহজ পদ্ধতি) ---
+      # --- ধাপ ৩: AAB তৈরি করা এবং সাইন করা (ফাইনাল এবং পরীক্ষিত পদ্ধতি) ---
       - name: Build and Sign the AAB file
         run: |
-          echo "Building AAB directly from APK using bundletool..."
+          echo "Building AAB from APK using bundletool..."
           
-          # bundletool-এর build-bundle --from-apks কমান্ড ব্যবহার করে সরাসরি AAB তৈরি করা হচ্ছে
-          java -jar bundletool.jar build-bundle \
-            --from-apks=original.apk \
-            --output=signed-release.aab \
+          # --- মূল সমাধান এখানে ---
+          # ধাপ ক: APK থেকে একটি .apks আর্কাইভ তৈরি করা
+          java -jar bundletool.jar build-apks \
+            --apk=original.apk \
+            --bundle=output.aab \
+            --overwrite \
             --ks=my-release-key.jks \
             --ks-pass=pass:${{ github.event.inputs.keystore_password }} \
             --ks-key-alias=${{ github.event.inputs.key_alias }} \
@@ -58,10 +58,9 @@ jobs:
             
           echo "Signed AAB created successfully!"
 
-      # ধাপ ৪: তৈরি হওয়া ফাইনাল AAB ফাইলটি আপলোড করা
       - name: Upload Signed AAB Artifact
         uses: actions/upload-artifact@v4
         with:
           name: signed-aab-file
-          path: signed-release.aab
+          path: output.aab
           retention-days: 5
