@@ -22,7 +22,6 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      # --- ধাপ ক: আপনার রিপোজিটরির কোড এবং ফাইল ডাউনলোড করা ---
       - name: Checkout Repository Files
         uses: actions/checkout@v4
 
@@ -31,7 +30,9 @@ jobs:
           sudo apt-get update && sudo apt-get install -y wget zip
           wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O apktool
           wget https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar -O apktool.jar
-          sudo mv apktool /usr/local/bin; sudo mv apktool.jar /usr/local/bin; sudo chmod +x /usr/local/bin/apktool /usr/local/bin/apktool.jar
+          sudo mv apktool /usr/local/bin
+          sudo mv apktool.jar /usr/local/bin
+          sudo chmod +x /usr/local/bin/apktool /usr/local/bin/apktool.jar
           wget https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar -O bundletool.jar
 
       - name: Download APK
@@ -40,13 +41,21 @@ jobs:
 
       - name: Build and Sign AAB
         run: |
+          # ধাপ ১: APK decompile করো
           apktool d -f original.apk -o decompiled_folder
+
+          # ধাপ ২: APK rebuild করো
           apktool b decompiled_folder -o rebuilt.apk
-          
-          # --- মূল পরিবর্তন এখানে ---
-          # এখন সে সরাসরি রিপোজিটরিতে থাকা Keystore ফাইলটি ব্যবহার করছে
-          java -jar bundletool.jar build-bundle --modules=rebuilt.apk --output=unsigned.aab
-          
+
+          # ধাপ ৩: APK কে ZIP হিসেবে rename করো (bundletool এর requirement)
+          cp rebuilt.apk rebuilt.zip
+
+          # ধাপ ৪: ZIP থেকে AAB বানাও
+          java -jar bundletool.jar build-bundle \
+            --modules=rebuilt.zip \
+            --output=unsigned.aab
+
+          # ধাপ ৫: AAB সাইন করো
           java -jar bundletool.jar sign-bundle \
             --input=unsigned.aab \
             --output=signed-release.aab \
