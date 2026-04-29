@@ -29,7 +29,7 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y wget zip unzip
 
-          # bundletool
+          # bundletool download
           wget -q https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar -O bundletool.jar
 
           # Android command line tools (aapt2 এর জন্য)
@@ -101,13 +101,13 @@ jobs:
             --output=unsigned.aab
 
           echo "=== ধাপ ৬: AAB সাইন করা ==="
-          java -jar bundletool.jar sign-bundle \
-            --input=unsigned.aab \
-            --output=signed-release.aab \
-            --ks=release-key.jks \
-            --ks-pass=pass:${{ github.event.inputs.keystore_password }} \
-            --ks-key-alias=${{ github.event.inputs.key_alias }} \
-            --key-pass=pass:${{ github.event.inputs.key_password }}
+          jarsigner \
+            -keystore release-key.jks \
+            -storepass ${{ github.event.inputs.keystore_password }} \
+            -keypass ${{ github.event.inputs.key_password }} \
+            -signedjar signed-release.aab \
+            unsigned.aab \
+            ${{ github.event.inputs.key_alias }}
 
           echo "✅ Done! signed-release.aab তৈরি হয়েছে।"
 
