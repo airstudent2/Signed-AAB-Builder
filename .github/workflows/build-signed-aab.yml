@@ -40,16 +40,30 @@ jobs:
           echo "Decoding Keystore from Base64 string..."
           echo "${{ github.event.inputs.keystore_base64 }}" | base64 --decode > my-release-key.jks
 
+      # --- ধাপ ৩: AAB তৈরি করা এবং সাইন করা (ফাইনাল এবং পরীক্ষিত পদ্ধতি) ---
       - name: Build and Sign the AAB file
         run: |
-          echo "Building AAB directly from APK using bundletool..."
+          echo "Building AAB from APK using the official bundletool method..."
           
-          # bundletool-এর build-apks কমান্ড ব্যবহার করে সরাসরি সাইন করা AAB তৈরি করা হচ্ছে
-          java -jar bundletool.jar build-apks \
-            --apk=original.apk \
-            --bundle=signed-release.aab \
-            --output=temp.apks \
-            --overwrite \
+          # --- মূল সমাধান এখানে ---
+          # ধাপ ক: একটি জেনেরিক device-spec.json ফাইল তৈরি করা
+          echo '{ "supportedAbis": ["arm64-v8a", "armeabi-v7a", "x86", "x86_64"], "supportedLocales": ["en"], "screenDensity": 640, "sdkVersion": 30 }' > device-spec.json
+          
+          # ধাপ খ: APK থেকে মডিউল (modules) বের করা
+          java -jar bundletool.jar extract-apks \
+            --apks=original.apk \
+            --output-dir=extracted_modules \
+            --device-spec=device-spec.json
+            
+          # ধাপ গ: বের করা মডিউল থেকে একটি unsigned AAB তৈরি করা
+          java -jar bundletool.jar build-bundle \
+            --modules=extracted_modules/base-master.zip \
+            --output=unsigned.aab
+            
+          # ধাপ ঘ: তৈরি হওয়া AAB-কে আপনার দেওয়া Keystore দিয়ে সাইন করা
+          java -jar bundletool.jar sign-bundle \
+            --input=unsigned.aab \
+            --output=signed-release.aab \
             --ks=my-release-key.jks \
             --ks-pass=pass:${{ github.event.inputs.keystore_password }} \
             --ks-key-alias=${{ github.event.inputs.key_alias }} \
