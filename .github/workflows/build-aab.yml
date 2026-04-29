@@ -6,6 +6,10 @@ on:
       apk_url:
         description: 'Direct Download URL of the APK file'
         required: true
+      keystore_filename:
+        description: 'Keystore filename (e.g. keystore_123456789.p12)'
+        required: true
+        default: 'keystore.p12'
       keystore_password:
         description: 'Your Keystore Password'
         required: true
@@ -32,20 +36,19 @@ jobs:
           # bundletool download
           wget -q https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar -O bundletool.jar
 
-          # ✅ Pre-installed aapt2 খোঁজো - নতুন download দরকার নেই
+          # Pre-installed aapt2 খোঁজো
           AAPT2_PATH=$(find /usr/local/lib/android/sdk/build-tools -name "aapt2" 2>/dev/null | sort -r | head -1)
-
           if [ -z "$AAPT2_PATH" ]; then
-            echo "Pre-installed aapt2 পাওয়া যায়নি, খুঁজছি..."
             AAPT2_PATH=$(find / -name "aapt2" 2>/dev/null | head -1)
           fi
-
           echo "✅ aapt2 পাওয়া গেছে: $AAPT2_PATH"
           echo "AAPT2=$AAPT2_PATH" >> $GITHUB_ENV
 
       - name: Download APK
         run: |
           echo "=== APK Download শুরু ==="
+          echo "URL: ${{ github.event.inputs.apk_url }}"
+
           curl -L \
             --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" \
             --max-time 300 \
@@ -53,6 +56,7 @@ jobs:
             -o original.apk \
             "${{ github.event.inputs.apk_url }}"
 
+          echo "=== Downloaded file info ==="
           ls -lh original.apk
           file original.apk
 
@@ -61,25 +65,37 @@ jobs:
             head -c 200 original.apk
             exit 1
           fi
-          echo "✅ APK valid!"
+          echo "✅ APK valid! Size: $(ls -lh original.apk | awk '{print $5}')"
 
       - name: Find Keystore File
         run: |
-          if [ -f "$GITHUB_WORKSPACE/keystore.p12" ]; then
+          REQUESTED="${{ github.event.inputs.keystore_filename }}"
+          echo "=== Requested Keystore: $REQUESTED ==="
+
+          if [ -f "$GITHUB_WORKSPACE/$REQUESTED" ]; then
+            echo "✅ Requested keystore পাওয়া গেছে: $REQUESTED"
+            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/$REQUESTED" >> $GITHUB_ENV
+
+          elif [ -f "$GITHUB_WORKSPACE/keystore.p12" ]; then
+            echo "⚠️ Requested file নেই, keystore.p12 ব্যবহার হচ্ছে"
             echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/keystore.p12" >> $GITHUB_ENV
-          elif [ -f "$GITHUB_WORKSPACE/release-key.jks" ]; then
-            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/release-key.jks" >> $GITHUB_ENV
+
           elif find "$GITHUB_WORKSPACE" -maxdepth 1 -name "*.jks" | grep -q .; then
             JKS_FILE=$(find "$GITHUB_WORKSPACE" -maxdepth 1 -name "*.jks" | head -1)
+            echo "⚠️ Fallback JKS: $JKS_FILE"
             echo "KEYSTORE_PATH=$JKS_FILE" >> $GITHUB_ENV
+
           elif find "$GITHUB_WORKSPACE" -maxdepth 1 -name "*.p12" | grep -q .; then
             P12_FILE=$(find "$GITHUB_WORKSPACE" -maxdepth 1 -name "*.p12" | head -1)
+            echo "⚠️ Fallback P12: $P12_FILE"
             echo "KEYSTORE_PATH=$P12_FILE" >> $GITHUB_ENV
+
           else
-            echo "❌ Keystore ফাইল পাওয়া যায়নি!"
+            echo "❌ কোনো Keystore ফাইল পাওয়া যায়নি!"
             exit 1
           fi
-          echo "✅ Keystore: $KEYSTORE_PATH"
+
+          echo "✅ Final Keystore Path: $KEYSTORE_PATH"
 
       - name: Build and Sign AAB
         run: |
@@ -89,14 +105,15 @@ jobs:
           echo "=== ধাপ ১: proto format convert ==="
           $AAPT2 convert --output-format proto original.apk -o proto.apk
 
-          echo "=== ধাপ ২: extract ==="
+          echo "=== ধাপ ২: proto APK extract ==="
           mkdir -p apk_extracted
           unzip -q proto.apk -d apk_extracted
 
-          echo "=== ধাপ ৩: module structure ==="
+          echo "=== ধাপ ৩: module structure তৈরি ==="
           mkdir -p module/manifest module/dex module/res module/lib module/assets module/root
 
           cp apk_extracted/AndroidManifest.xml module/manifest/
+
           [ -f apk_extracted/resources.pb ] && cp apk_extracted/resources.pb module/
 
           find apk_extracted -maxdepth 1 -name "*.dex" | while read f; do
@@ -106,20 +123,21 @@ jobs:
           [ -d apk_extracted/res ]    && cp -r apk_extracted/res    module/
           [ -d apk_extracted/lib ]    && cp -r apk_extracted/lib    module/
           [ -d apk_extracted/assets ] && cp -r apk_extracted/assets module/
+
           [ -d apk_extracted/kotlin ] && cp -r apk_extracted/kotlin module/root/
           [ -d apk_extracted/META-INF/services ] && \
             mkdir -p module/root/META-INF && \
             cp -r apk_extracted/META-INF/services module/root/META-INF/
 
-          echo "=== ধাপ ৪: ZIP ==="
+          echo "=== ধাপ ৪: module ZIP তৈরি ==="
           cd module && zip -r ../module.zip . && cd ..
 
-          echo "=== ধাপ ৫: unsigned AAB ==="
+          echo "=== ধাপ ৫: unsigned AAB তৈরি ==="
           java -jar bundletool.jar build-bundle \
             --modules=module.zip \
             --output=unsigned.aab
 
-          echo "=== ধাপ ৬: Sign ==="
+          echo "=== ধাপ ৬: AAB Sign ==="
           jarsigner \
             -keystore $KEYSTORE_PATH \
             -storepass ${{ github.event.inputs.keystore_password }} \
@@ -128,10 +146,11 @@ jobs:
             unsigned.aab \
             ${{ github.event.inputs.key_alias }}
 
-          echo "✅ Done!"
+          echo "✅ Done! signed-release.aab তৈরি হয়েছে।"
 
       - name: Upload Signed AAB Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: signed-aab-file
+          name: signed-aab-${{ github.run_id }}
           path: signed-release.aab
+          retention-days: 1
