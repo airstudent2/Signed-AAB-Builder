@@ -20,20 +20,30 @@ jobs:
   build-aab:
     name: Build and Sign AAB
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout Repository Files
         uses: actions/checkout@v4
 
       - name: Install Tools
         run: |
-          sudo apt-get update && sudo apt-get install -y wget zip
-          wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O apktool
-          wget https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar -O apktool.jar
-          sudo mv apktool /usr/local/bin
-          sudo mv apktool.jar /usr/local/bin
-          sudo chmod +x /usr/local/bin/apktool /usr/local/bin/apktool.jar
-          wget https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar -O bundletool.jar
+          sudo apt-get update -qq && sudo apt-get install -y wget zip unzip
+
+          # bundletool
+          wget -q https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar -O bundletool.jar
+
+          # Android command line tools (aapt2 এর জন্য)
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdtools.zip
+          unzip -q cmdtools.zip -d cmdtools_tmp
+          mkdir -p $HOME/android-sdk/cmdline-tools/latest
+          mv cmdtools_tmp/cmdline-tools/* $HOME/android-sdk/cmdline-tools/latest/
+
+          # build-tools install (aapt2 এখানে থাকে)
+          yes | $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager \
+            --sdk_root=$HOME/android-sdk \
+            "build-tools;34.0.0" > /dev/null
+
+          echo "AAPT2=$HOME/android-sdk/build-tools/34.0.0/aapt2" >> $GITHUB_ENV
 
       - name: Download APK
         run: |
@@ -41,21 +51,56 @@ jobs:
 
       - name: Build and Sign AAB
         run: |
-          # ধাপ ১: APK decompile করো
-          apktool d -f original.apk -o decompiled_folder
+          echo "=== ধাপ ১: APK resources proto format এ convert করা ==="
+          $AAPT2 convert --output-format proto original.apk -o proto.apk
 
-          # ধাপ ২: APK rebuild করো
-          apktool b decompiled_folder -o rebuilt.apk
+          echo "=== ধাপ ২: proto APK extract করা ==="
+          mkdir -p apk_extracted
+          unzip -q proto.apk -d apk_extracted
 
-          # ধাপ ৩: APK কে ZIP হিসেবে rename করো (bundletool এর requirement)
-          cp rebuilt.apk rebuilt.zip
+          echo "=== ধাপ ৩: bundletool module structure তৈরি করা ==="
+          mkdir -p module/manifest
+          mkdir -p module/dex
+          mkdir -p module/res
+          mkdir -p module/lib
+          mkdir -p module/assets
+          mkdir -p module/root
 
-          # ধাপ ৪: ZIP থেকে AAB বানাও
+          # AndroidManifest.xml → manifest/ ফোল্ডারে
+          cp apk_extracted/AndroidManifest.xml module/manifest/
+
+          # resources.pb → module root এ
+          [ -f apk_extracted/resources.pb ] && cp apk_extracted/resources.pb module/
+
+          # DEX files → dex/ ফোল্ডারে
+          find apk_extracted -maxdepth 1 -name "*.dex" | while read f; do
+            cp "$f" module/dex/
+          done
+
+          # res/ → module এ (যদি থাকে)
+          [ -d apk_extracted/res ] && cp -r apk_extracted/res module/
+
+          # lib/ → module এ (native libraries, যদি থাকে)
+          [ -d apk_extracted/lib ] && cp -r apk_extracted/lib module/
+
+          # assets/ → module এ (যদি থাকে)
+          [ -d apk_extracted/assets ] && cp -r apk_extracted/assets module/
+
+          # অন্য root files (kotlin, META-INF/services) → root/ এ
+          [ -d apk_extracted/kotlin ] && cp -r apk_extracted/kotlin module/root/
+          [ -d apk_extracted/META-INF/services ] && \
+            mkdir -p module/root/META-INF && \
+            cp -r apk_extracted/META-INF/services module/root/META-INF/
+
+          echo "=== ধাপ ৪: module ZIP তৈরি করা ==="
+          cd module && zip -r ../module.zip . && cd ..
+
+          echo "=== ধাপ ৫: unsigned AAB তৈরি করা ==="
           java -jar bundletool.jar build-bundle \
-            --modules=rebuilt.zip \
+            --modules=module.zip \
             --output=unsigned.aab
 
-          # ধাপ ৫: AAB সাইন করো
+          echo "=== ধাপ ৬: AAB সাইন করা ==="
           java -jar bundletool.jar sign-bundle \
             --input=unsigned.aab \
             --output=signed-release.aab \
@@ -63,6 +108,8 @@ jobs:
             --ks-pass=pass:${{ github.event.inputs.keystore_password }} \
             --ks-key-alias=${{ github.event.inputs.key_alias }} \
             --key-pass=pass:${{ github.event.inputs.key_password }}
+
+          echo "✅ Done! signed-release.aab তৈরি হয়েছে।"
 
       - name: Upload Signed AAB Artifact
         uses: actions/upload-artifact@v4
