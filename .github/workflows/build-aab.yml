@@ -7,9 +7,8 @@ on:
         description: 'Direct Download URL of the APK file'
         required: true
       keystore_filename:
-        description: 'Keystore filename (e.g. keystore_123456789.p12)'
+        description: 'The unique name of the keystore file uploaded by the bot'
         required: true
-        default: 'keystore.p12'
       keystore_password:
         description: 'Your Keystore Password'
         required: true
@@ -67,43 +66,32 @@ jobs:
           fi
           echo "✅ APK valid! Size: $(ls -lh original.apk | awk '{print $5}')"
 
-      - name: Find Keystore File
+      # --- নিরাপত্তা আপডেট: ঝুঁকিপূর্ণ 'Find Keystore File' ধাপটি বদলে দেওয়া হয়েছে ---
+      - name: Set Specific Keystore Path
         run: |
-          REQUESTED="${{ github.event.inputs.keystore_filename }}"
-          echo "=== Requested Keystore: $REQUESTED ==="
+          # বট থেকে পাঠানো নির্দিষ্ট ফাইলের নামটি একটি ভ্যারিয়েবলে রাখা হচ্ছে
+          REQUESTED_KEYSTORE="${{ github.event.inputs.keystore_filename }}"
+          echo "=== Verifying requested keystore: $REQUESTED_KEYSTORE ==="
 
-          if [ -f "$GITHUB_WORKSPACE/$REQUESTED" ]; then
-            echo "✅ Requested keystore পাওয়া গেছে: $REQUESTED"
-            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/$REQUESTED" >> $GITHUB_ENV
-
-          elif [ -f "$GITHUB_WORKSPACE/keystore.p12" ]; then
-            echo "⚠️ Requested file নেই, keystore.p12 ব্যবহার হচ্ছে"
-            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/keystore.p12" >> $GITHUB_ENV
-
-          elif find "$GITHUB_WORKSPACE" -maxdepth 1 -name "*.jks" | grep -q .; then
-            JKS_FILE=$(find "$GITHUB_WORKSPACE" -maxdepth 1 -name "*.jks" | head -1)
-            echo "⚠️ Fallback JKS: $JKS_FILE"
-            echo "KEYSTORE_PATH=$JKS_FILE" >> $GITHUB_ENV
-
-          elif find "$GITHUB_WORKSPACE" -maxdepth 1 -name "*.p12" | grep -q .; then
-            P12_FILE=$(find "$GITHUB_WORKSPACE" -maxdepth 1 -name "*.p12" | head -1)
-            echo "⚠️ Fallback P12: $P12_FILE"
-            echo "KEYSTORE_PATH=$P12_FILE" >> $GITHUB_ENV
-
+          # শুধুমাত্র সেই নির্দিষ্ট ফাইলটিই আছে কিনা, তা কঠোরভাবে চেক করা হচ্ছে
+          if [ -f "$GITHUB_WORKSPACE/$REQUESTED_KEYSTORE" ]; then
+            echo "✅ Requested keystore found: $REQUESTED_KEYSTORE"
+            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/$REQUESTED_KEYSTORE" >> $GITHUB_ENV
           else
-            echo "❌ কোনো Keystore ফাইল পাওয়া যায়নি!"
+            # যদি নির্দিষ্ট ফাইলটি না পাওয়া যায়, তাহলে কাজটি ব্যর্থ হবে। কোনো fallback নেই।
+            echo "❌ Critical Error: The specified keystore file was not found: $REQUESTED_KEYSTORE"
+            echo "Debug: Listing available files in workspace..."
+            ls -l $GITHUB_WORKSPACE
             exit 1
           fi
-
-          echo "✅ Final Keystore Path: $KEYSTORE_PATH"
-
+          
       - name: Build and Sign AAB
         run: |
-          echo "=== aapt2: $AAPT2 ==="
-          echo "=== Keystore: $KEYSTORE_PATH ==="
+          echo "=== Using aapt2: $AAPT2 ==="
+          echo "=== Using Keystore: ${{ env.KEYSTORE_PATH }} ==="
 
           echo "=== ধাপ ১: proto format convert ==="
-          $AAPT2 convert --output-format proto original.apk -o proto.apk
+          ${{ env.AAPT2 }} convert --output-format proto original.apk -o proto.apk
 
           echo "=== ধাপ ২: proto APK extract ==="
           mkdir -p apk_extracted
@@ -130,7 +118,7 @@ jobs:
             cp -r apk_extracted/META-INF/services module/root/META-INF/
 
           echo "=== ধাপ ৪: module ZIP তৈরি ==="
-          cd module && zip -r ../module.zip . && cd ..
+          cd module && zip -qr ../module.zip . && cd ..
 
           echo "=== ধাপ ৫: unsigned AAB তৈরি ==="
           java -jar bundletool.jar build-bundle \
@@ -139,7 +127,7 @@ jobs:
 
           echo "=== ধাপ ৬: AAB Sign ==="
           jarsigner \
-            -keystore $KEYSTORE_PATH \
+            -keystore ${{ env.KEYSTORE_PATH }} \
             -storepass ${{ github.event.inputs.keystore_password }} \
             -keypass ${{ github.event.inputs.key_password }} \
             -signedjar signed-release.aab \
