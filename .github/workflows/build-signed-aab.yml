@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Install Required Tools
+      - name: Install Required Tool (bundletool)
         run: |
           echo "Installing bundletool..."
           sudo apt-get update && sudo apt-get install -y wget
@@ -40,16 +40,15 @@ jobs:
           echo "Decoding Keystore from Base64 string..."
           echo "${{ github.event.inputs.keystore_base64 }}" | base64 --decode > my-release-key.jks
 
-      # --- ধাপ ৩: AAB তৈরি করা এবং সাইন করা (ফাইনাল এবং পরীক্ষিত পদ্ধতি) ---
       - name: Build and Sign the AAB file
         run: |
-          echo "Building AAB from APK using bundletool..."
+          echo "Building AAB directly from APK using bundletool..."
           
-          # --- মূল সমাধান এখানে ---
-          # ধাপ ক: APK থেকে একটি .apks আর্কাইভ তৈরি করা
+          # bundletool-এর build-apks কমান্ড ব্যবহার করে সরাসরি সাইন করা AAB তৈরি করা হচ্ছে
           java -jar bundletool.jar build-apks \
             --apk=original.apk \
-            --bundle=output.aab \
+            --bundle=signed-release.aab \
+            --output=temp.apks \
             --overwrite \
             --ks=my-release-key.jks \
             --ks-pass=pass:${{ github.event.inputs.keystore_password }} \
@@ -62,5 +61,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: signed-aab-file
-          path: output.aab
+          path: signed-release.aab
           retention-days: 5
